@@ -1,33 +1,33 @@
 # Click-Relevator
 
-Script per macOS che, al triplo clic sinistro, cattura lo schermo e invia lo screenshot a un modello visivo tramite OpenRouter. La risposta A/B/C/D viene poi inviata via rete a un ESP8266, che fa lampeggiare il LED integrato.
+Applicazione per macOS che ascolta il triplo clic sinistro. Acquisisce in memoria **solo la finestra attiva**, invia l'immagine a un modello vision tramite OpenRouter e inoltra la risposta A/B/C/D a un ESP8266. La scheda fa lampeggiare il LED integrato: A = 1 lampeggio, B = 2, C = 3, D = 4.
 
 ## Requisiti
 
 - macOS e Python 3
-- Una API key OpenRouter
-- Scheda ESP8266 collegata alla stessa rete Wi-Fi del computer
-- Arduino IDE con supporto per ESP8266
+- Una API key OpenRouter e accesso a un modello che accetta immagini
+- ESP8266 e computer connessi alla stessa rete Wi-Fi/LAN
+- Arduino IDE con il supporto per le schede ESP8266 installato
 
 ## Installazione e configurazione
 
-Installa i pacchetti Python richiesti:
+Dalla cartella del progetto, installa le dipendenze Python:
 
 ```bash
 python3 -m pip install requests pynput Pillow pyobjc-framework-Quartz pyobjc-framework-Cocoa
 ```
 
-Crea il file di configurazione locale copiando [`config.example.py`](config.example.py), quindi inserisci la tua API key OpenRouter e, se necessario, scegli il modello vision:
+Crea il file di configurazione locale a partire dal modello:
 
 ```bash
 cp config.example.py config.py
 ```
 
-Non condividere né pubblicare la tua API key.
+Modifica [`config.py`](config.py): inserisci la tua API key OpenRouter in `OPENROUTER_API_KEY` e imposta il modello vision in `IMAGE_MODEL`. Il file è escluso dal controllo versione tramite [`.gitignore`](.gitignore); non pubblicare la chiave.
 
-Apri [`nodemcu/nodemcu.ino`](nodemcu/nodemcu.ino) e imposta SSID e password della rete Wi-Fi. Carica il firmware sull'ESP8266 tramite Arduino IDE e accendi la scheda.
+Apri [`nodemcu/nodemcu.ino`](nodemcu/nodemcu.ino) e sostituisci `NOME_RETE` e `PASSWORD_RETE` con le credenziali Wi-Fi. Seleziona la scheda ESP8266 corretta in Arduino IDE e carica lo sketch. Quando la scheda si connette alla rete, il LED lampeggia una volta per indicare che è pronta.
 
-## Avvio
+## Esecuzione
 
 Esegui dalla cartella del progetto:
 
@@ -35,4 +35,10 @@ Esegui dalla cartella del progetto:
 python3 main.py
 ```
 
-Quando compare il messaggio di ascolto, fai tre clic sinistri entro mezzo secondo. Al primo avvio, concedi a Python i permessi macOS necessari per monitorare i clic e acquisire lo schermo. Gli screenshot vengono salvati in `~/Pictures/TripleClick`; l'ESP8266 viene individuato automaticamente sulla rete.
+Al messaggio di ascolto, fai tre clic sinistri entro mezzo secondo. Al primo avvio, autorizza il terminale o l'applicazione Python nelle impostazioni macOS per il monitoraggio dei clic e la registrazione schermo. Premi `Ctrl+C` per terminare.
+
+Lo screenshot non viene salvato su disco: è acquisito in memoria e inviato a OpenRouter per l'analisi. Lo script cerca l'ESP8266 tramite broadcast UDP sulla porta 4210 e gli invia la risposta via HTTP.
+
+
+## Note
+è necessario che venga prima eseguito main.py e solo dopo venga acceso il NodeMCU
