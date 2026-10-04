@@ -1,11 +1,13 @@
 import base64
-import os
+import io
 import socket
-import subprocess
 import time
 
 import requests
+from PIL import Image
 from pynput import mouse
+import Quartz
+import AppKit
 
 from config import OPENROUTER_API_KEY, IMAGE_MODEL
 
@@ -15,8 +17,6 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 ESP8266_DISCOVERY_PORT = 4210
 ESP8266_DISCOVERY_TIMEOUT = 2
 
-SCREENSHOT_DIR = os.path.expanduser("~/Pictures/TripleClick")
-
 TRIPLE_CLICK_WINDOW = 0.5
 REQUEST_TIMEOUT = 60
 
@@ -24,32 +24,172 @@ click_times = []
 
 
 def take_screenshot():
-    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+    """
+    Acquisisce esclusivamente la finestra attiva/frontmost
+    direttamente in memoria.
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    Non viene creato alcun file sul disco.
+    """
 
-    filepath = os.path.join(
-        SCREENSHOT_DIR,
-        f"screenshot_{timestamp}.png"
+    workspace = AppKit.NSWorkspace.sharedWorkspace()
+    active_app = workspace.frontmostApplication()
+
+    if active_app is None:
+        raise RuntimeError(
+            "Impossibile identificare l'applicazione attiva"
+        )
+
+    pid = active_app.processIdentifier()
+
+    window_list = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly
+        | Quartz.kCGWindowListExcludeDesktopElements,
+        Quartz.kCGNullWindowID
     )
 
-    subprocess.run(
-        [
-            "/usr/sbin/screencapture",
-            "-x",
-            filepath
-        ],
-        check=True
+    window_id = None
+    window_name = None
+    window_bounds = None
+
+    for window in window_list:
+
+        owner_pid = window.get(
+            Quartz.kCGWindowOwnerPID
+        )
+
+        if owner_pid != pid:
+            continue
+
+        layer = window.get(
+            Quartz.kCGWindowLayer,
+            -1
+        )
+
+        if layer != 0:
+            continue
+
+        bounds = window.get(
+            Quartz.kCGWindowBounds
+        )
+
+        if not bounds:
+            continue
+
+        width = bounds.get("Width", 0)
+        height = bounds.get("Height", 0)
+
+        if width <= 0 or height <= 0:
+            continue
+
+        window_id = window.get(
+            Quartz.kCGWindowNumber
+        )
+
+        window_name = window.get(
+            Quartz.kCGWindowName
+        )
+
+        window_bounds = bounds
+
+        break
+
+    if window_id is None:
+        raise RuntimeError(
+            "Impossibile trovare la finestra attiva"
+        )
+
+    print(
+        f"Finestra attiva: "
+        f"{active_app.localizedName()}"
     )
 
-    return filepath
+    if window_name:
+        print(
+            f"Titolo finestra: {window_name}"
+        )
+
+    image = Quartz.CGWindowListCreateImage(
+        Quartz.CGRectNull,
+        Quartz.kCGWindowListOptionIncludingWindow,
+        window_id,
+        Quartz.kCGWindowImageBoundsIgnoreFraming
+    )
+
+    if image is None:
+        raise RuntimeError(
+            "Impossibile acquisire la finestra attiva"
+        )
+
+    width = Quartz.CGImageGetWidth(image)
+    height = Quartz.CGImageGetHeight(image)
+
+    if width <= 0 or height <= 0:
+        raise RuntimeError(
+            "La finestra attiva ha dimensioni non valide"
+        )
+
+    data_provider = Quartz.CGImageGetDataProvider(
+        image
+    )
+
+    if data_provider is None:
+        raise RuntimeError(
+            "Data provider della finestra non disponibile"
+        )
+
+    data = Quartz.CGDataProviderCopyData(
+        data_provider
+    )
+
+    if data is None:
+        raise RuntimeError(
+            "Dati della finestra non disponibili"
+        )
+
+    raw_data = bytes(data)
+
+    bytes_per_row = Quartz.CGImageGetBytesPerRow(
+        image
+    )
+
+    pil_image = Image.frombuffer(
+        "RGBA",
+        (width, height),
+        raw_data,
+        "raw",
+        "BGRA",
+        bytes_per_row,
+        1
+    )
+
+    png_buffer = io.BytesIO()
+
+    pil_image.save(
+        png_buffer,
+        format="PNG"
+    )
+
+    screenshot = png_buffer.getvalue()
+
+    if not screenshot:
+        raise RuntimeError(
+            "Screenshot vuoto"
+        )
+
+    print(
+        f"Screenshot finestra: "
+        f"{width}x{height}, "
+        f"{len(screenshot):,} bytes"
+    )
+
+    return screenshot
 
 
 def find_esp8266():
     """
     Cerca l'ESP8266 sulla rete tramite UDP broadcast.
 
-    L'ESP8266 ascolta sulla porta 4210 e risponde con:
+    L'ESP8266 risponde con:
         NOOKAI_ESP8266 <IP>
     """
 
@@ -64,7 +204,9 @@ def find_esp8266():
         1
     )
 
-    sock.settimeout(ESP8266_DISCOVERY_TIMEOUT)
+    sock.settimeout(
+        ESP8266_DISCOVERY_TIMEOUT
+    )
 
     try:
         print("Cerco ESP8266 sulla rete...")
@@ -85,7 +227,9 @@ def find_esp8266():
                 errors="ignore"
             ).strip()
 
-            if response.startswith("NOOKAI_ESP8266"):
+            if response.startswith(
+                "NOOKAI_ESP8266"
+            ):
                 ip = addr[0]
 
                 print(
@@ -95,7 +239,9 @@ def find_esp8266():
                 return ip
 
     except socket.timeout:
-        print("ESP8266 non trovato sulla rete")
+        print(
+            "ESP8266 non trovato sulla rete"
+        )
         return None
 
     except OSError as e:
@@ -111,9 +257,6 @@ def find_esp8266():
 def send_to_esp8266(answer):
     """
     Invia A/B/C/D all'ESP8266.
-
-    L'IP viene scoperto dinamicamente ogni volta,
-    quindi non dipende da un IP statico.
     """
 
     answer = answer.strip().upper()
@@ -159,16 +302,22 @@ def send_to_esp8266(answer):
         )
 
 
-def ask_ai(image_path):
+def ask_ai(image_data):
+    """
+    Invia lo screenshot della finestra attiva
+    direttamente in memoria a OpenRouter.
+    """
+
     print("Invio screenshot all'AI...")
 
-    with open(
-        image_path,
-        "rb"
-    ) as file:
-        image_base64 = base64.b64encode(
-            file.read()
-        ).decode("utf-8")
+    image_base64 = base64.b64encode(
+        image_data
+    ).decode("ascii")
+
+    if not image_base64:
+        raise RuntimeError(
+            "Base64 dello screenshot vuoto"
+        )
 
     screenshot = (
         "data:image/png;base64,"
@@ -196,7 +345,7 @@ Sei un esperto di AIMMS.
 
 Devi risolvere una domanda a risposta multipla.
 
-L'immagine allegata è uno screenshot dello schermo.
+L'immagine allegata mostra la finestra attiva dello schermo.
 
 Individua la domanda attualmente visibile e analizza attentamente:
 
@@ -234,7 +383,7 @@ Non scrivere altro testo.
 
                         "text": (
                             "Risolvi la domanda visibile "
-                            "nello screenshot. "
+                            "nella finestra attiva. "
                             "Restituisci esclusivamente "
                             "A, B, C oppure D."
                         )
@@ -258,6 +407,17 @@ Non scrivere altro testo.
         json=payload,
         timeout=REQUEST_TIMEOUT
     )
+
+    print(
+        "HTTP:",
+        response.status_code
+    )
+
+    if response.status_code >= 400:
+        print(
+            "OpenRouter:",
+            response.text
+        )
 
     response.raise_for_status()
 
@@ -325,11 +485,6 @@ def handle_click(
 
             screenshot = take_screenshot()
 
-            print(
-                "Screenshot:",
-                screenshot
-            )
-
             answer = ask_ai(
                 screenshot
             )
@@ -377,6 +532,14 @@ def main():
 
     print(
         "ESP8266: discovery UDP dinamico"
+    )
+
+    print(
+        "Screenshot: solo finestra attiva"
+    )
+
+    print(
+        "Screenshot: memoria (nessun file)"
     )
 
     print(

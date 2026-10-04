@@ -1,19 +1,38 @@
 # Click-Relevator
 
-Piccolo script per macOS che rileva un triplo clic sinistro, acquisisce uno screenshot e chiede a un modello visivo su OpenRouter di scegliere una risposta A/B/C/D. La scelta viene inviata a un ESP8266, che la segnala facendo lampeggiare il LED integrato.
+Script per macOS che, al triplo clic sinistro, cattura lo schermo e invia lo screenshot a un modello visivo tramite OpenRouter. La risposta A/B/C/D viene poi inviata via rete a un ESP8266, che fa lampeggiare il LED integrato.
 
 ## Requisiti
 
-- Python 3 e dipendenze `requests` e `pynput`.
-- Una API key OpenRouter e un modello vision configurati in [`config.py`](config.py).
-- ESP8266 con il firmware [`nodemcu/nodemcu.ino`](nodemcu/nodemcu.ino), collegato alla stessa rete Wi-Fi del Mac.
+- macOS e Python 3
+- Una API key OpenRouter
+- Scheda ESP8266 collegata alla stessa rete Wi-Fi del computer
+- Arduino IDE con supporto per ESP8266
+
+## Installazione e configurazione
+
+Installa i pacchetti Python richiesti:
+
+```bash
+python3 -m pip install requests pynput Pillow pyobjc-framework-Quartz pyobjc-framework-Cocoa
+```
+
+Crea il file di configurazione locale copiando [`config.example.py`](config.example.py), quindi inserisci la tua API key OpenRouter e, se necessario, scegli il modello vision:
+
+```bash
+cp config.example.py config.py
+```
+
+Non condividere né pubblicare la tua API key.
+
+Apri [`nodemcu/nodemcu.ino`](nodemcu/nodemcu.ino) e imposta SSID e password della rete Wi-Fi. Carica il firmware sull'ESP8266 tramite Arduino IDE e accendi la scheda.
 
 ## Avvio
 
-1. Installa le dipendenze: `python3 -m pip install requests pynput`.
-2. Inserisci la tua API key OpenRouter in [`config.py`](config.py). Non condividere né committare la chiave.
-3. Imposta SSID e password Wi-Fi nel firmware, caricalo sull'ESP8266 e avvialo.
-4. Avvia lo script: `python3 main.py`.
-5. Fai tre clic sinistri entro mezzo secondo. Al primo utilizzo, consenti a macOS l'accesso richiesto per acquisizione schermo e monitoraggio input.
+Esegui dalla cartella del progetto:
 
-Gli screenshot vengono salvati in `~/Pictures/TripleClick`. L'ESP8266 viene cercato automaticamente sulla rete tramite UDP.
+```bash
+python3 main.py
+```
+
+Quando compare il messaggio di ascolto, fai tre clic sinistri entro mezzo secondo. Al primo avvio, concedi a Python i permessi macOS necessari per monitorare i clic e acquisire lo schermo. Gli screenshot vengono salvati in `~/Pictures/TripleClick`; l'ESP8266 viene individuato automaticamente sulla rete.
